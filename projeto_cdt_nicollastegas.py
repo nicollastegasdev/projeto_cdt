@@ -25,6 +25,7 @@ COR_CINZA = "#aaaaaa"
 COR_VERDE = "#2ecc71"
 
 ARQUIVO_PEDIDOS = "pedidos.json"
+ARQUIVO_USUARIOS = "usuarios.json"
 PASTA_IMAGENS = "imagens"
 
 os.makedirs(PASTA_IMAGENS, exist_ok=True)
@@ -185,6 +186,8 @@ CARDAPIO = {
 carrinho = []
 imagens_checkout = {}
 
+usuario_logado = None
+
 
 # ============================================================
 # FORMATAR DINHEIRO
@@ -195,7 +198,786 @@ def formatar_real(valor):
 
 
 # ============================================================
-# CRIAR IMAGEM DE FALLBACK
+# SISTEMA DE USUARIOS
+# ============================================================
+
+def carregar_usuarios():
+
+    if not os.path.exists(ARQUIVO_USUARIOS):
+
+        # Não existe administrador padrão.
+        # O primeiro administrador deverá ser criado pelo próprio usuário
+        # através da opção "CRIAR CONTA DE ADMINISTRADOR".
+        return {}
+
+    try:
+
+        with open(
+            ARQUIVO_USUARIOS,
+            "r",
+            encoding="utf-8"
+        ) as arquivo:
+
+            return json.load(arquivo)
+
+    except Exception:
+
+        return {}
+
+
+def salvar_usuarios(usuarios):
+
+    with open(
+        ARQUIVO_USUARIOS,
+        "w",
+        encoding="utf-8"
+    ) as arquivo:
+
+        json.dump(
+            usuarios,
+            arquivo,
+            ensure_ascii=False,
+            indent=4
+        )
+
+
+def cadastrar_usuario(nome, email, senha):
+    usuarios = carregar_usuarios()
+    email = email.lower().strip()
+
+    if email in usuarios:
+        return False, "Este e-mail já está cadastrado."
+
+    if len(nome.strip()) < 2:
+        return False, "Digite um nome válido."
+
+    if len(email) < 5 or "@" not in email:
+        return False, "Digite um e-mail válido."
+
+    if len(senha) < 4:
+        return False, "A senha deve possuir pelo menos 4 caracteres."
+
+    usuarios[email] = {
+        "nome": nome.strip(),
+        "senha": senha,
+        "tipo": "usuario"
+    }
+
+    salvar_usuarios(usuarios)
+
+    return True, "Usuário cadastrado com sucesso!"
+
+
+def cadastrar_admin(nome, email, senha, codigo):
+    usuarios = carregar_usuarios()
+    email = email.lower().strip()
+
+    if email in usuarios:
+        return False, "Este e-mail já está cadastrado."
+
+    # Código definido pelo dono do sistema para permitir a criação
+    # da primeira conta administrativa.
+    if codigo != "CHAPA-ADMIN":
+        return False, "Código de administrador incorreto."
+
+    if len(nome.strip()) < 2:
+        return False, "Digite um nome válido."
+
+    if len(email) < 5 or "@" not in email:
+        return False, "Digite um e-mail válido."
+
+    if len(senha) < 4:
+        return False, "A senha deve possuir pelo menos 4 caracteres."
+
+    usuarios[email] = {
+        "nome": nome.strip(),
+        "senha": senha,
+        "tipo": "administrador"
+    }
+
+    salvar_usuarios(usuarios)
+
+    return True, "Administrador criado com sucesso!"
+
+
+
+# ============================================================
+# TELA DE CADASTRO
+# ============================================================
+
+def abrir_cadastro():
+    cadastro = tk.Toplevel(janela_login)
+    cadastro.title("Criar conta")
+    cadastro.geometry("420x560")
+    cadastro.resizable(False, False)
+    cadastro.configure(bg=COR_CARD)
+
+    cadastro.transient(janela_login)
+    cadastro.grab_set()
+
+    tk.Label(
+        cadastro,
+        text="🍔 CRIAR CONTA",
+        font=("Arial", 20, "bold"),
+        bg=COR_CARD,
+        fg=COR_BRANCO
+    ).pack(pady=(25, 5))
+
+    tk.Label(
+        cadastro,
+        text="Escolha o tipo de conta que deseja criar",
+        font=("Arial", 9),
+        bg=COR_CARD,
+        fg=COR_CINZA
+    ).pack(pady=(0, 18))
+
+    # Tipo de conta
+    tk.Label(
+        cadastro,
+        text="Tipo de conta",
+        font=("Arial", 9, "bold"),
+        bg=COR_CARD,
+        fg=COR_CINZA
+    ).pack(anchor="w", padx=45)
+
+    tipo_var = tk.StringVar(value="cliente")
+
+    combo_tipo = ttk.Combobox(
+        cadastro,
+        textvariable=tipo_var,
+        values=["cliente", "administrador"],
+        state="readonly"
+    )
+    combo_tipo.pack(
+        fill="x",
+        padx=45,
+        pady=(5, 14),
+        ipady=5
+    )
+
+    # Nome
+    tk.Label(
+        cadastro,
+        text="Nome completo",
+        font=("Arial", 9, "bold"),
+        bg=COR_CARD,
+        fg=COR_CINZA
+    ).pack(anchor="w", padx=45)
+
+    entrada_nome = tk.Entry(
+        cadastro,
+        font=("Arial", 11),
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        insertbackground=COR_BRANCO,
+        relief="flat"
+    )
+    entrada_nome.pack(
+        fill="x",
+        padx=45,
+        pady=(5, 12),
+        ipady=7
+    )
+
+    # E-mail
+    tk.Label(
+        cadastro,
+        text="E-mail",
+        font=("Arial", 9, "bold"),
+        bg=COR_CARD,
+        fg=COR_CINZA
+    ).pack(anchor="w", padx=45)
+
+    entrada_email = tk.Entry(
+        cadastro,
+        font=("Arial", 11),
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        insertbackground=COR_BRANCO,
+        relief="flat"
+    )
+    entrada_email.pack(
+        fill="x",
+        padx=45,
+        pady=(5, 12),
+        ipady=7
+    )
+
+    # Senha
+    tk.Label(
+        cadastro,
+        text="Senha",
+        font=("Arial", 9, "bold"),
+        bg=COR_CARD,
+        fg=COR_CINZA
+    ).pack(anchor="w", padx=45)
+
+    entrada_senha = tk.Entry(
+        cadastro,
+        font=("Arial", 11),
+        show="*",
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        insertbackground=COR_BRANCO,
+        relief="flat"
+    )
+    entrada_senha.pack(
+        fill="x",
+        padx=45,
+        pady=(5, 12),
+        ipady=7
+    )
+
+    # Código administrativo, inicialmente oculto.
+    label_codigo = tk.Label(
+        cadastro,
+        text="Código de administrador",
+        font=("Arial", 9, "bold"),
+        bg=COR_CARD,
+        fg=COR_CINZA
+    )
+
+    entrada_codigo = tk.Entry(
+        cadastro,
+        font=("Arial", 11),
+        show="*",
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        insertbackground=COR_BRANCO,
+        relief="flat"
+    )
+
+    aviso_admin = tk.Label(
+        cadastro,
+        text="Use o código definido no programa para criar uma conta administrativa.",
+        font=("Arial", 8),
+        bg=COR_CARD,
+        fg=COR_CINZA,
+        wraplength=330,
+        justify="center"
+    )
+
+    def atualizar_tipo(event=None):
+        if tipo_var.get() == "administrador":
+            label_codigo.pack(anchor="w", padx=45)
+            entrada_codigo.pack(
+                fill="x",
+                padx=45,
+                pady=(5, 5),
+                ipady=7
+            )
+            aviso_admin.pack(pady=(0, 8))
+        else:
+            label_codigo.pack_forget()
+            entrada_codigo.pack_forget()
+            aviso_admin.pack_forget()
+
+    combo_tipo.bind("<<ComboboxSelected>>", atualizar_tipo)
+
+    def realizar_cadastro():
+        nome = entrada_nome.get().strip()
+        email = entrada_email.get().strip()
+        senha = entrada_senha.get()
+
+        if tipo_var.get() == "administrador":
+            codigo = entrada_codigo.get().strip()
+            sucesso, mensagem = cadastrar_admin(
+                nome,
+                email,
+                senha,
+                codigo
+            )
+        else:
+            sucesso, mensagem = cadastrar_usuario(
+                nome,
+                email,
+                senha
+            )
+
+        if sucesso:
+            messagebox.showinfo(
+                "Cadastro",
+                mensagem,
+                parent=cadastro
+            )
+
+            cadastro.destroy()
+            entrada_login_email.delete(0, tk.END)
+            entrada_login_email.insert(0, email)
+            entrada_login_senha.focus()
+
+        else:
+            messagebox.showerror(
+                "Erro",
+                mensagem,
+                parent=cadastro
+            )
+
+    tk.Button(
+        cadastro,
+        text="CRIAR CONTA",
+        command=realizar_cadastro,
+        bg=COR_VERMELHO,
+        fg=COR_BRANCO,
+        activebackground=COR_VERMELHO_ESCURO,
+        activeforeground=COR_BRANCO,
+        relief="flat",
+        cursor="hand2",
+        font=("Arial", 10, "bold")
+    ).pack(
+        fill="x",
+        padx=45,
+        pady=(5, 0),
+        ipady=9
+    )
+
+    entrada_nome.focus()
+
+
+
+# ============================================================
+# LOGIN
+# ============================================================
+
+def realizar_login():
+
+    global usuario_logado
+
+    email = entrada_login_email.get().strip().lower()
+    senha = entrada_login_senha.get()
+
+    usuarios = carregar_usuarios()
+
+    if email not in usuarios:
+
+        messagebox.showerror(
+            "Login",
+            "E-mail não encontrado.",
+            parent=janela_login
+        )
+
+        return
+
+    usuario = usuarios[email]
+
+    if usuario["senha"] != senha:
+
+        messagebox.showerror(
+            "Login",
+            "Senha incorreta.",
+            parent=janela_login
+        )
+
+        entrada_login_senha.delete(0, tk.END)
+
+        return
+
+    usuario_logado = {
+        "email": email,
+        "nome": usuario["nome"],
+        "tipo": usuario["tipo"]
+    }
+
+    janela_login.destroy()
+
+    iniciar_sistema()
+
+
+# ============================================================
+# ADMINISTRADOR - CADASTRAR FUNCIONARIO
+# ============================================================
+
+def cadastrar_funcionario():
+
+    if not usuario_logado:
+        return
+
+    if usuario_logado["tipo"] != "administrador":
+
+        messagebox.showerror(
+            "Acesso negado",
+            "Somente o administrador pode cadastrar funcionários."
+        )
+
+        return
+
+    cadastro = tk.Toplevel(janela)
+
+    cadastro.title("Cadastrar funcionário")
+    cadastro.geometry("420x500")
+    cadastro.resizable(False, False)
+    cadastro.configure(bg=COR_CARD)
+
+    cadastro.transient(janela)
+    cadastro.grab_set()
+
+    tk.Label(
+        cadastro,
+        text="👨‍🍳 NOVO FUNCIONÁRIO",
+        font=("Arial", 18, "bold"),
+        bg=COR_CARD,
+        fg=COR_BRANCO
+    ).pack(pady=(25, 5))
+
+    tk.Label(
+        cadastro,
+        text="Crie uma conta para funcionário ou administrador",
+        font=("Arial", 9),
+        bg=COR_CARD,
+        fg=COR_CINZA
+    ).pack(pady=(0, 20))
+
+    # Nome
+
+    tk.Label(
+        cadastro,
+        text="Nome",
+        bg=COR_CARD,
+        fg=COR_CINZA,
+        font=("Arial", 9, "bold")
+    ).pack(anchor="w", padx=45)
+
+    nome = tk.Entry(
+        cadastro,
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        insertbackground=COR_BRANCO,
+        relief="flat",
+        font=("Arial", 11)
+    )
+
+    nome.pack(
+        fill="x",
+        padx=45,
+        pady=(5, 12),
+        ipady=7
+    )
+
+    # Email
+
+    tk.Label(
+        cadastro,
+        text="E-mail",
+        bg=COR_CARD,
+        fg=COR_CINZA,
+        font=("Arial", 9, "bold")
+    ).pack(anchor="w", padx=45)
+
+    email = tk.Entry(
+        cadastro,
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        insertbackground=COR_BRANCO,
+        relief="flat",
+        font=("Arial", 11)
+    )
+
+    email.pack(
+        fill="x",
+        padx=45,
+        pady=(5, 12),
+        ipady=7
+    )
+
+    # Senha
+
+    tk.Label(
+        cadastro,
+        text="Senha",
+        bg=COR_CARD,
+        fg=COR_CINZA,
+        font=("Arial", 9, "bold")
+    ).pack(anchor="w", padx=45)
+
+    senha = tk.Entry(
+        cadastro,
+        show="*",
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        insertbackground=COR_BRANCO,
+        relief="flat",
+        font=("Arial", 11)
+    )
+
+    senha.pack(
+        fill="x",
+        padx=45,
+        pady=(5, 12),
+        ipady=7
+    )
+
+    # Tipo
+
+    tk.Label(
+        cadastro,
+        text="Tipo de conta",
+        bg=COR_CARD,
+        fg=COR_CINZA,
+        font=("Arial", 9, "bold")
+    ).pack(anchor="w", padx=45)
+
+    tipo_var = tk.StringVar(value="funcionario")
+
+    combo = ttk.Combobox(
+        cadastro,
+        textvariable=tipo_var,
+        values=[
+            "funcionario",
+            "administrador"
+        ],
+        state="readonly"
+    )
+
+    combo.pack(
+        fill="x",
+        padx=45,
+        pady=(5, 20),
+        ipady=5
+    )
+
+    def salvar():
+
+        nome_valor = nome.get().strip()
+        email_valor = email.get().strip().lower()
+        senha_valor = senha.get()
+        tipo_valor = tipo_var.get()
+
+        usuarios = carregar_usuarios()
+
+        if not nome_valor or not email_valor or not senha_valor:
+
+            messagebox.showwarning(
+                "Atenção",
+                "Preencha todos os campos.",
+                parent=cadastro
+            )
+
+            return
+
+        if email_valor in usuarios:
+
+            messagebox.showerror(
+                "Erro",
+                "Este e-mail já está cadastrado.",
+                parent=cadastro
+            )
+
+            return
+
+        usuarios[email_valor] = {
+            "nome": nome_valor,
+            "senha": senha_valor,
+            "tipo": tipo_valor
+        }
+
+        salvar_usuarios(usuarios)
+
+        messagebox.showinfo(
+            "Sucesso",
+            "Conta criada com sucesso!",
+            parent=cadastro
+        )
+
+        cadastro.destroy()
+
+    tk.Button(
+        cadastro,
+        text="CADASTRAR CONTA",
+        command=salvar,
+        bg=COR_VERMELHO,
+        fg=COR_BRANCO,
+        activebackground=COR_VERMELHO_ESCURO,
+        relief="flat",
+        cursor="hand2",
+        font=("Arial", 10, "bold")
+    ).pack(
+        fill="x",
+        padx=45,
+        ipady=9
+    )
+
+
+# ============================================================
+# PAINEL DO ADMINISTRADOR
+# ============================================================
+
+def abrir_painel_admin():
+
+    if usuario_logado["tipo"] != "administrador":
+
+        messagebox.showerror(
+            "Acesso negado",
+            "Somente administradores podem acessar este painel."
+        )
+
+        return
+
+    painel = tk.Toplevel(janela)
+
+    painel.title("Painel administrativo")
+    painel.geometry("700x500")
+    painel.resizable(False, False)
+    painel.configure(bg=COR_FUNDO)
+
+    tk.Label(
+        painel,
+        text="👑 PAINEL ADMINISTRATIVO",
+        font=("Arial", 20, "bold"),
+        bg=COR_FUNDO,
+        fg=COR_BRANCO
+    ).pack(pady=(20, 5))
+
+    tk.Label(
+        painel,
+        text=f"Administrador: {usuario_logado['nome']}",
+        font=("Arial", 10),
+        bg=COR_FUNDO,
+        fg=COR_CINZA
+    ).pack(pady=(0, 15))
+
+    frame_botoes = tk.Frame(
+        painel,
+        bg=COR_FUNDO
+    )
+
+    frame_botoes.pack(
+        fill="x",
+        padx=30
+    )
+
+    tk.Button(
+        frame_botoes,
+        text="👨‍🍳 CADASTRAR FUNCIONÁRIO",
+        command=cadastrar_funcionario,
+        bg=COR_VERMELHO,
+        fg=COR_BRANCO,
+        relief="flat",
+        cursor="hand2",
+        font=("Arial", 10, "bold")
+    ).pack(
+        fill="x",
+        pady=5,
+        ipady=8
+    )
+
+    tk.Button(
+        frame_botoes,
+        text="📋 VISUALIZAR USUÁRIOS",
+        command=lambda: visualizar_usuarios(painel),
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        relief="flat",
+        cursor="hand2",
+        font=("Arial", 10, "bold")
+    ).pack(
+        fill="x",
+        pady=5,
+        ipady=8
+    )
+
+
+# ============================================================
+# VISUALIZAR USUARIOS
+# ============================================================
+
+def visualizar_usuarios(pai):
+
+    usuarios = carregar_usuarios()
+
+    janela_usuarios = tk.Toplevel(pai)
+
+    janela_usuarios.title("Usuários cadastrados")
+    janela_usuarios.geometry("600x400")
+    janela_usuarios.configure(bg=COR_CARD)
+
+    tk.Label(
+        janela_usuarios,
+        text="USUÁRIOS CADASTRADOS",
+        font=("Arial", 16, "bold"),
+        bg=COR_CARD,
+        fg=COR_BRANCO
+    ).pack(pady=15)
+
+    tabela_usuarios = ttk.Treeview(
+        janela_usuarios,
+        columns=("Nome", "Email", "Tipo"),
+        show="headings"
+    )
+
+    tabela_usuarios.heading(
+        "Nome",
+        text="Nome"
+    )
+
+    tabela_usuarios.heading(
+        "Email",
+        text="E-mail"
+    )
+
+    tabela_usuarios.heading(
+        "Tipo",
+        text="Tipo"
+    )
+
+    tabela_usuarios.column(
+        "Nome",
+        width=170
+    )
+
+    tabela_usuarios.column(
+        "Email",
+        width=250
+    )
+
+    tabela_usuarios.column(
+        "Tipo",
+        width=130
+    )
+
+    tabela_usuarios.pack(
+        fill="both",
+        expand=True,
+        padx=20,
+        pady=(0, 20)
+    )
+
+    for email, dados in usuarios.items():
+
+        tabela_usuarios.insert(
+            "",
+            tk.END,
+            values=(
+                dados["nome"],
+                email,
+                dados["tipo"].capitalize()
+            )
+        )
+
+
+# ============================================================
+# LOGOUT
+# ============================================================
+
+def fazer_logout():
+
+    global usuario_logado
+
+    resposta = messagebox.askyesno(
+        "Sair",
+        "Deseja realmente sair da conta?"
+    )
+
+    if resposta:
+
+        usuario_logado = None
+
+        janela.destroy()
+
+        iniciar_login()
+
+
+# ============================================================
+# CRIAR IMAGEM FALLBACK
 # ============================================================
 
 def criar_imagem_fallback(nome, emoji):
@@ -228,11 +1010,14 @@ def criar_imagem_fallback(nome, emoji):
     )
 
     try:
+
         fonte = ImageFont.truetype(
             "seguiemj.ttf",
             90
         )
+
     except Exception:
+
         fonte = ImageFont.load_default()
 
     desenho.text(
@@ -373,7 +1158,9 @@ def carregar_imagem(caminho, tamanho=(180, 90)):
 
     try:
 
-        imagem = Image.open(caminho).convert("RGB")
+        imagem = Image.open(
+            caminho
+        ).convert("RGB")
 
         imagem.thumbnail(
             tamanho,
@@ -386,15 +1173,24 @@ def carregar_imagem(caminho, tamanho=(180, 90)):
             "#222222"
         )
 
-        x = (tamanho[0] - imagem.width) // 2
-        y = (tamanho[1] - imagem.height) // 2
+        x = (
+            tamanho[0] -
+            imagem.width
+        ) // 2
+
+        y = (
+            tamanho[1] -
+            imagem.height
+        ) // 2
 
         fundo.paste(
             imagem,
             (x, y)
         )
 
-        return ImageTk.PhotoImage(fundo)
+        return ImageTk.PhotoImage(
+            fundo
+        )
 
     except Exception:
 
@@ -404,7 +1200,9 @@ def carregar_imagem(caminho, tamanho=(180, 90)):
             "#333333"
         )
 
-        desenho = ImageDraw.Draw(imagem)
+        desenho = ImageDraw.Draw(
+            imagem
+        )
 
         desenho.text(
             (
@@ -415,7 +1213,9 @@ def carregar_imagem(caminho, tamanho=(180, 90)):
             anchor="mm"
         )
 
-        return ImageTk.PhotoImage(imagem)
+        return ImageTk.PhotoImage(
+            imagem
+        )
 
 
 # ============================================================
@@ -430,8 +1230,11 @@ def calcular_valores():
     )
 
     if subtotal >= 50:
+
         desconto = subtotal * 0.10
+
     else:
+
         desconto = 0
 
     total = subtotal - desconto
@@ -579,11 +1382,6 @@ def abrir_checkout():
     checkout.transient(janela)
     checkout.grab_set()
 
-
-    # ========================================================
-    # TITULO
-    # ========================================================
-
     tk.Label(
         checkout,
         text="✓ FINALIZAR COMPRA",
@@ -604,11 +1402,6 @@ def abrir_checkout():
         pady=(0, 7)
     )
 
-
-    # ========================================================
-    # PRODUTOS COM IMAGENS
-    # ========================================================
-
     frame_produtos = tk.Frame(
         checkout,
         bg="#111111",
@@ -622,7 +1415,6 @@ def abrir_checkout():
     )
 
     frame_produtos.pack_propagate(False)
-
 
     canvas_checkout = tk.Canvas(
         frame_produtos,
@@ -670,11 +1462,6 @@ def abrir_checkout():
         fill="y"
     )
 
-
-    # ========================================================
-    # IMAGENS DOS PRODUTOS
-    # ========================================================
-
     imagens_checkout.clear()
 
     for item in carrinho:
@@ -695,7 +1482,6 @@ def abrir_checkout():
 
         imagens_checkout[produto] = imagem
 
-
         card_produto = tk.Frame(
             area_checkout,
             bg=COR_CARD_2
@@ -707,7 +1493,6 @@ def abrir_checkout():
             pady=4
         )
 
-
         tk.Label(
             card_produto,
             image=imagem,
@@ -717,7 +1502,6 @@ def abrir_checkout():
             padx=7,
             pady=5
         )
-
 
         informacoes = tk.Frame(
             card_produto,
@@ -731,7 +1515,6 @@ def abrir_checkout():
             padx=5
         )
 
-
         tk.Label(
             informacoes,
             text=produto,
@@ -743,7 +1526,6 @@ def abrir_checkout():
             pady=(6, 0)
         )
 
-
         tk.Label(
             informacoes,
             text=f"Quantidade: {item['quantidade']}",
@@ -754,12 +1536,10 @@ def abrir_checkout():
             anchor="w"
         )
 
-
         valor_item = (
             item["preco"] *
             item["quantidade"]
         )
-
 
         tk.Label(
             informacoes,
@@ -770,7 +1550,6 @@ def abrir_checkout():
         ).pack(
             anchor="w"
         )
-
 
     # ========================================================
     # FORMULARIO
@@ -786,19 +1565,13 @@ def abrir_checkout():
         padx=25
     )
 
-
-    # Nome
-
     tk.Label(
         formulario,
         text="Nome do cliente *",
         font=("Arial", 9, "bold"),
         bg=COR_CARD,
         fg=COR_CINZA
-    ).pack(
-        anchor="w"
-    )
-
+    ).pack(anchor="w")
 
     entrada_nome = tk.Entry(
         formulario,
@@ -815,8 +1588,14 @@ def abrir_checkout():
         ipady=5
     )
 
+    # Preenche o nome do usuário logado
 
-    # Endereco
+    if usuario_logado:
+
+        entrada_nome.insert(
+            0,
+            usuario_logado["nome"]
+        )
 
     tk.Label(
         formulario,
@@ -824,10 +1603,7 @@ def abrir_checkout():
         font=("Arial", 9, "bold"),
         bg=COR_CARD,
         fg=COR_CINZA
-    ).pack(
-        anchor="w"
-    )
-
+    ).pack(anchor="w")
 
     entrada_endereco = tk.Entry(
         formulario,
@@ -844,24 +1620,17 @@ def abrir_checkout():
         ipady=5
     )
 
-
-    # Tipo de residencia
-
     tk.Label(
         formulario,
         text="Tipo de residência",
         font=("Arial", 9, "bold"),
         bg=COR_CARD,
         fg=COR_CINZA
-    ).pack(
-        anchor="w"
-    )
-
+    ).pack(anchor="w")
 
     tipo_var = tk.StringVar(
         value="Casa"
     )
-
 
     combo_tipo = ttk.Combobox(
         formulario,
@@ -880,19 +1649,13 @@ def abrir_checkout():
         ipady=3
     )
 
-
-    # Numero da casa
-
     tk.Label(
         formulario,
         text="Número da casa *",
         font=("Arial", 9, "bold"),
         bg=COR_CARD,
         fg=COR_CINZA
-    ).pack(
-        anchor="w"
-    )
-
+    ).pack(anchor="w")
 
     entrada_numero = tk.Entry(
         formulario,
@@ -909,24 +1672,17 @@ def abrir_checkout():
         ipady=5
     )
 
-
-    # Pagamento
-
     tk.Label(
         formulario,
         text="Forma de pagamento *",
         font=("Arial", 9, "bold"),
         bg=COR_CARD,
         fg=COR_CINZA
-    ).pack(
-        anchor="w"
-    )
-
+    ).pack(anchor="w")
 
     pagamento_var = tk.StringVar(
         value="PIX"
     )
-
 
     combo_pagamento = ttk.Combobox(
         formulario,
@@ -946,13 +1702,7 @@ def abrir_checkout():
         ipady=3
     )
 
-
-    # ========================================================
-    # RESUMO
-    # ========================================================
-
     subtotal, desconto, total = calcular_valores()
-
 
     resumo = tk.Frame(
         checkout,
@@ -964,7 +1714,6 @@ def abrir_checkout():
         padx=25,
         pady=(2, 7)
     )
-
 
     tk.Label(
         resumo,
@@ -978,7 +1727,6 @@ def abrir_checkout():
         pady=(4, 0)
     )
 
-
     tk.Label(
         resumo,
         text=f"Desconto: {formatar_real(desconto)}",
@@ -989,7 +1737,6 @@ def abrir_checkout():
         anchor="w",
         padx=10
     )
-
 
     tk.Label(
         resumo,
@@ -1003,7 +1750,6 @@ def abrir_checkout():
         pady=(0, 4)
     )
 
-
     # ========================================================
     # CONFIRMAR COMPRA
     # ========================================================
@@ -1011,15 +1757,10 @@ def abrir_checkout():
     def confirmar_compra():
 
         nome = entrada_nome.get().strip()
-
         endereco = entrada_endereco.get().strip()
-
         numero_casa = entrada_numero.get().strip()
-
         tipo_residencia = tipo_var.get()
-
         pagamento = pagamento_var.get()
-
 
         if not nome:
 
@@ -1029,10 +1770,7 @@ def abrir_checkout():
                 parent=checkout
             )
 
-            entrada_nome.focus()
-
             return
-
 
         if not endereco:
 
@@ -1042,10 +1780,7 @@ def abrir_checkout():
                 parent=checkout
             )
 
-            entrada_endereco.focus()
-
             return
-
 
         if not numero_casa:
 
@@ -1055,21 +1790,7 @@ def abrir_checkout():
                 parent=checkout
             )
 
-            entrada_numero.focus()
-
             return
-
-
-        if not pagamento:
-
-            messagebox.showwarning(
-                "Dados incompletos",
-                "Escolha uma forma de pagamento.",
-                parent=checkout
-            )
-
-            return
-
 
         finalizar_pedido(
             nome,
@@ -1079,7 +1800,6 @@ def abrir_checkout():
             pagamento,
             checkout
         )
-
 
     tk.Button(
         checkout,
@@ -1098,8 +1818,7 @@ def abrir_checkout():
         ipady=8
     )
 
-
-    entrada_nome.focus()
+    entrada_endereco.focus()
 
 
 # ============================================================
@@ -1122,7 +1841,6 @@ def finalizar_pedido(
     numero = agora.strftime(
         "%Y%m%d%H%M%S"
     )
-
 
     pedido = {
 
@@ -1148,6 +1866,12 @@ def finalizar_pedido(
 
         "pagamento": pagamento,
 
+        "usuario_email": (
+            usuario_logado["email"]
+            if usuario_logado
+            else ""
+        ),
+
         "itens": [
             item.copy()
             for item in carrinho
@@ -1159,7 +1883,6 @@ def finalizar_pedido(
 
         "total": total
     }
-
 
     salvar_pedido(pedido)
 
@@ -1178,7 +1901,6 @@ def salvar_pedido(pedido):
 
     pedidos = []
 
-
     if os.path.exists(
         ARQUIVO_PEDIDOS
     ):
@@ -1195,18 +1917,13 @@ def salvar_pedido(pedido):
                     arquivo
                 )
 
-        except (
-            json.JSONDecodeError,
-            FileNotFoundError
-        ):
+        except Exception:
 
             pedidos = []
-
 
     pedidos.append(
         pedido
     )
-
 
     with open(
         ARQUIVO_PEDIDOS,
@@ -1249,7 +1966,6 @@ def mostrar_recibo(pedido):
         bg=COR_CARD
     )
 
-
     tk.Label(
         janela_recibo,
         text="🍔 PEDIDO CONFIRMADO",
@@ -1259,7 +1975,6 @@ def mostrar_recibo(pedido):
     ).pack(
         pady=(15, 5)
     )
-
 
     texto = tk.Text(
         janela_recibo,
@@ -1277,7 +1992,6 @@ def mostrar_recibo(pedido):
         padx=18,
         pady=12
     )
-
 
     recibo = (
 
@@ -1307,7 +2021,6 @@ def mostrar_recibo(pedido):
         "------------------------------------\n"
     )
 
-
     for item in pedido["itens"]:
 
         valor_item = (
@@ -1323,7 +2036,6 @@ def mostrar_recibo(pedido):
             f"    "
             f"{formatar_real(valor_item)}\n"
         )
-
 
     recibo += (
 
@@ -1349,7 +2061,6 @@ def mostrar_recibo(pedido):
         "====================================\n"
     )
 
-
     texto.insert(
         "1.0",
         recibo
@@ -1358,7 +2069,6 @@ def mostrar_recibo(pedido):
     texto.config(
         state="disabled"
     )
-
 
     tk.Button(
         janela_recibo,
@@ -1390,560 +2100,902 @@ def limpar_pedido():
 
 
 # ============================================================
+# VISUALIZAR PEDIDOS - FUNCIONARIO / ADMIN
+# ============================================================
+
+def visualizar_pedidos():
+
+    if usuario_logado["tipo"] not in [
+        "funcionario",
+        "administrador"
+    ]:
+
+        messagebox.showerror(
+            "Acesso negado",
+            "Você não possui permissão para visualizar os pedidos."
+        )
+
+        return
+
+    pedidos_janela = tk.Toplevel(janela)
+
+    pedidos_janela.title(
+        "Pedidos da hamburgueria"
+    )
+
+    pedidos_janela.geometry(
+        "800x500"
+    )
+
+    pedidos_janela.configure(
+        bg=COR_FUNDO
+    )
+
+    tk.Label(
+        pedidos_janela,
+        text="📋 PEDIDOS",
+        font=("Arial", 20, "bold"),
+        bg=COR_FUNDO,
+        fg=COR_BRANCO
+    ).pack(pady=15)
+
+    tabela_pedidos = ttk.Treeview(
+        pedidos_janela,
+        columns=(
+            "Numero",
+            "Cliente",
+            "Data",
+            "Pagamento",
+            "Total",
+            "Status"
+        ),
+        show="headings"
+    )
+
+    for coluna in (
+        "Numero",
+        "Cliente",
+        "Data",
+        "Pagamento",
+        "Total",
+        "Status"
+    ):
+
+        tabela_pedidos.heading(
+            coluna,
+            text=coluna
+        )
+
+    tabela_pedidos.column(
+        "Numero",
+        width=120
+    )
+
+    tabela_pedidos.column(
+        "Cliente",
+        width=160
+    )
+
+    tabela_pedidos.column(
+        "Data",
+        width=130
+    )
+
+    tabela_pedidos.column(
+        "Pagamento",
+        width=120
+    )
+
+    tabela_pedidos.column(
+        "Total",
+        width=100
+    )
+
+    tabela_pedidos.column(
+        "Status",
+        width=100
+    )
+
+    tabela_pedidos.pack(
+        fill="both",
+        expand=True,
+        padx=20,
+        pady=(0, 20)
+    )
+
+    pedidos = []
+
+    if os.path.exists(
+        ARQUIVO_PEDIDOS
+    ):
+
+        try:
+
+            with open(
+                ARQUIVO_PEDIDOS,
+                "r",
+                encoding="utf-8"
+            ) as arquivo:
+
+                pedidos = json.load(
+                    arquivo
+                )
+
+        except Exception:
+
+            pedidos = []
+
+    for pedido in pedidos:
+
+        tabela_pedidos.insert(
+            "",
+            tk.END,
+            values=(
+                pedido["numero"],
+                pedido["cliente"],
+                pedido["data"],
+                pedido["pagamento"],
+                formatar_real(
+                    pedido["total"]
+                ),
+                pedido["status"]
+            )
+        )
+
+
+# ============================================================
 # JANELA PRINCIPAL
 # ============================================================
 
-janela = tk.Tk()
+def iniciar_sistema():
 
-janela.title(
-    "Chapa Quente Hamburgueria"
-)
+    global janela
+    global tabela
+    global subtotal_label
+    global desconto_label
+    global total_label
+    global relogio
 
-janela.geometry(
-    f"{LARGURA}x{ALTURA}"
-)
+    janela = tk.Tk()
 
-janela.resizable(
-    False,
-    False
-)
-
-janela.configure(
-    bg=COR_FUNDO
-)
-
-
-# ============================================================
-# CABECALHO
-# ============================================================
-
-topo = tk.Frame(
-    janela,
-    bg="#0b0b0b",
-    height=65
-)
-
-topo.pack(
-    fill="x"
-)
-
-topo.pack_propagate(
-    False
-)
-
-
-tk.Label(
-    topo,
-    text="🍔 Chapa Quente",
-    font=("Arial", 20, "bold"),
-    bg="#0b0b0b",
-    fg=COR_BRANCO
-).pack(
-    side="left",
-    padx=20
-)
-
-
-tk.Label(
-    topo,
-    text="Hamburgueria",
-    font=("Arial", 10, "bold"),
-    bg="#0b0b0b",
-    fg=COR_VERMELHO
-).pack(
-    side="left"
-)
-
-
-relogio = tk.Label(
-    topo,
-    text="",
-    font=("Arial", 9),
-    bg="#0b0b0b",
-    fg=COR_CINZA
-)
-
-relogio.pack(
-    side="right",
-    padx=20
-)
-
-
-# ============================================================
-# RELOGIO
-# ============================================================
-
-def atualizar_relogio():
-
-    relogio.config(
-        text=datetime.now().strftime(
-            "%d/%m/%Y  •  %H:%M:%S"
-        )
+    janela.title(
+        "Chapa Quente Hamburgueria"
     )
 
-    janela.after(
-        1000,
-        atualizar_relogio
+    janela.geometry(
+        f"{LARGURA}x{ALTURA}"
     )
 
-
-# ============================================================
-# CORPO PRINCIPAL
-# ============================================================
-
-principal = tk.Frame(
-    janela,
-    bg=COR_FUNDO
-)
-
-principal.pack(
-    fill="both",
-    expand=True,
-    padx=10,
-    pady=10
-)
-
-
-# ============================================================
-# LADO ESQUERDO - CARDAPIO
-# ============================================================
-
-esquerda = tk.Frame(
-    principal,
-    bg=COR_FUNDO,
-    width=570
-)
-
-esquerda.pack(
-    side="left",
-    fill="both",
-    expand=True
-)
-
-
-tk.Label(
-    esquerda,
-    text="🍔 Cardápio",
-    font=("Arial", 17, "bold"),
-    bg=COR_FUNDO,
-    fg=COR_BRANCO
-).pack(
-    anchor="w",
-    pady=(0, 5)
-)
-
-
-canvas = tk.Canvas(
-    esquerda,
-    bg=COR_FUNDO,
-    highlightthickness=0
-)
-
-
-scrollbar_produtos = ttk.Scrollbar(
-    esquerda,
-    orient="vertical",
-    command=canvas.yview
-)
-
-
-area_produtos = tk.Frame(
-    canvas,
-    bg=COR_FUNDO
-)
-
-
-area_produtos.bind(
-    "<Configure>",
-    lambda event:
-    canvas.configure(
-        scrollregion=canvas.bbox("all")
-    )
-)
-
-
-canvas.create_window(
-    (0, 0),
-    window=area_produtos,
-    anchor="nw"
-)
-
-
-canvas.configure(
-    yscrollcommand=scrollbar_produtos.set
-)
-
-
-canvas.pack(
-    side="left",
-    fill="both",
-    expand=True
-)
-
-
-scrollbar_produtos.pack(
-    side="right",
-    fill="y"
-)
-
-
-# ============================================================
-# CARDS DO CARDAPIO - SEM IMAGENS
-# ============================================================
-
-for indice, (produto, dados) in enumerate(
-    CARDAPIO.items()
-):
-
-    linha = indice // 2
-
-    coluna = indice % 2
-
-
-    card = tk.Frame(
-        area_produtos,
-        bg=COR_CARD,
-        width=260,
-        height=105
-    )
-
-    card.grid(
-        row=linha,
-        column=coluna,
-        padx=5,
-        pady=5
-    )
-
-    card.grid_propagate(
+    janela.resizable(
+        False,
         False
     )
 
+    janela.configure(
+        bg=COR_FUNDO
+    )
+
+    # ========================================================
+    # CABECALHO
+    # ========================================================
+
+    topo = tk.Frame(
+        janela,
+        bg="#0b0b0b",
+        height=65
+    )
+
+    topo.pack(
+        fill="x"
+    )
+
+    topo.pack_propagate(
+        False
+    )
 
     tk.Label(
-        card,
-        text=produto,
-        font=("Arial", 11, "bold"),
-        bg=COR_CARD,
+        topo,
+        text="🍔 Chapa Quente",
+        font=("Arial", 20, "bold"),
+        bg="#0b0b0b",
         fg=COR_BRANCO
     ).pack(
-        anchor="w",
-        padx=12,
-        pady=(10, 2)
+        side="left",
+        padx=20
     )
-
 
     tk.Label(
-        card,
-        text=dados["descricao"],
-        font=("Arial", 8),
-        bg=COR_CARD,
-        fg=COR_CINZA
-    ).pack(
-        anchor="w",
-        padx=12
-    )
-
-
-    rodape = tk.Frame(
-        card,
-        bg=COR_CARD
-    )
-
-    rodape.pack(
-        fill="x",
-        padx=12,
-        pady=7
-    )
-
-
-    tk.Label(
-        rodape,
-        text=formatar_real(
-            dados["preco"]
-        ),
-        font=("Arial", 11, "bold"),
-        bg=COR_CARD,
+        topo,
+        text="Hamburgueria",
+        font=("Arial", 10, "bold"),
+        bg="#0b0b0b",
         fg=COR_VERMELHO
     ).pack(
         side="left"
     )
 
+    # ========================================================
+    # USUARIO LOGADO
+    # ========================================================
+
+    info_usuario = tk.Frame(
+        topo,
+        bg="#0b0b0b"
+    )
+
+    info_usuario.pack(
+        side="right",
+        padx=10
+    )
+
+    tk.Label(
+        info_usuario,
+        text=(
+            f"{usuario_logado['nome']} | "
+            f"{usuario_logado['tipo'].capitalize()}"
+        ),
+        font=("Arial", 8, "bold"),
+        bg="#0b0b0b",
+        fg=COR_CINZA
+    ).pack(
+        side="left",
+        padx=8
+    )
 
     tk.Button(
-        rodape,
-        text="+ ADICIONAR",
-        command=lambda p=produto:
-        adicionar_produto(p),
+        info_usuario,
+        text="SAIR",
+        command=fazer_logout,
+        bg="#333333",
+        fg=COR_BRANCO,
+        activebackground="#444444",
+        relief="flat",
+        cursor="hand2",
+        font=("Arial", 8, "bold")
+    ).pack(
+        side="left"
+    )
+
+    # ========================================================
+    # BOTOES DE FUNCIONARIO / ADMIN
+    # ========================================================
+
+    if usuario_logado["tipo"] in [
+        "funcionario",
+        "administrador"
+    ]:
+
+        tk.Button(
+            info_usuario,
+            text="📋 PEDIDOS",
+            command=visualizar_pedidos,
+            bg=COR_VERMELHO,
+            fg=COR_BRANCO,
+            relief="flat",
+            cursor="hand2",
+            font=("Arial", 8, "bold")
+        ).pack(
+            side="left",
+            padx=5
+        )
+
+    if usuario_logado["tipo"] == "administrador":
+
+        tk.Button(
+            info_usuario,
+            text="👑 ADMIN",
+            command=abrir_painel_admin,
+            bg="#6c2bd9",
+            fg=COR_BRANCO,
+            relief="flat",
+            cursor="hand2",
+            font=("Arial", 8, "bold")
+        ).pack(
+            side="left",
+            padx=5
+        )
+
+    relogio = tk.Label(
+        topo,
+        text="",
+        font=("Arial", 8),
+        bg="#0b0b0b",
+        fg=COR_CINZA
+    )
+
+    relogio.pack(
+        side="right",
+        padx=10
+    )
+
+    # ========================================================
+    # RELOGIO
+    # ========================================================
+
+    def atualizar_relogio():
+
+        relogio.config(
+            text=datetime.now().strftime(
+                "%d/%m/%Y  •  %H:%M:%S"
+            )
+        )
+
+        janela.after(
+            1000,
+            atualizar_relogio
+        )
+
+    # ========================================================
+    # CORPO
+    # ========================================================
+
+    principal = tk.Frame(
+        janela,
+        bg=COR_FUNDO
+    )
+
+    principal.pack(
+        fill="both",
+        expand=True,
+        padx=10,
+        pady=10
+    )
+
+    # ========================================================
+    # LADO ESQUERDO
+    # ========================================================
+
+    esquerda = tk.Frame(
+        principal,
+        bg=COR_FUNDO,
+        width=570
+    )
+
+    esquerda.pack(
+        side="left",
+        fill="both",
+        expand=True
+    )
+
+    tk.Label(
+        esquerda,
+        text="🍔 Cardápio",
+        font=("Arial", 17, "bold"),
+        bg=COR_FUNDO,
+        fg=COR_BRANCO
+    ).pack(
+        anchor="w",
+        pady=(0, 5)
+    )
+
+    canvas = tk.Canvas(
+        esquerda,
+        bg=COR_FUNDO,
+        highlightthickness=0
+    )
+
+    scrollbar_produtos = ttk.Scrollbar(
+        esquerda,
+        orient="vertical",
+        command=canvas.yview
+    )
+
+    area_produtos = tk.Frame(
+        canvas,
+        bg=COR_FUNDO
+    )
+
+    area_produtos.bind(
+        "<Configure>",
+        lambda event:
+        canvas.configure(
+            scrollregion=canvas.bbox("all")
+        )
+    )
+
+    canvas.create_window(
+        (0, 0),
+        window=area_produtos,
+        anchor="nw"
+    )
+
+    canvas.configure(
+        yscrollcommand=scrollbar_produtos.set
+    )
+
+    canvas.pack(
+        side="left",
+        fill="both",
+        expand=True
+    )
+
+    scrollbar_produtos.pack(
+        side="right",
+        fill="y"
+    )
+
+    # ========================================================
+    # CARDS
+    # ========================================================
+
+    for indice, (produto, dados) in enumerate(
+        CARDAPIO.items()
+    ):
+
+        linha = indice // 2
+        coluna = indice % 2
+
+        card = tk.Frame(
+            area_produtos,
+            bg=COR_CARD,
+            width=260,
+            height=105
+        )
+
+        card.grid(
+            row=linha,
+            column=coluna,
+            padx=5,
+            pady=5
+        )
+
+        card.grid_propagate(False)
+
+        tk.Label(
+            card,
+            text=produto,
+            font=("Arial", 11, "bold"),
+            bg=COR_CARD,
+            fg=COR_BRANCO
+        ).pack(
+            anchor="w",
+            padx=12,
+            pady=(10, 2)
+        )
+
+        tk.Label(
+            card,
+            text=dados["descricao"],
+            font=("Arial", 8),
+            bg=COR_CARD,
+            fg=COR_CINZA
+        ).pack(
+            anchor="w",
+            padx=12
+        )
+
+        rodape = tk.Frame(
+            card,
+            bg=COR_CARD
+        )
+
+        rodape.pack(
+            fill="x",
+            padx=12,
+            pady=7
+        )
+
+        tk.Label(
+            rodape,
+            text=formatar_real(
+                dados["preco"]
+            ),
+            font=("Arial", 11, "bold"),
+            bg=COR_CARD,
+            fg=COR_VERMELHO
+        ).pack(
+            side="left"
+        )
+
+        tk.Button(
+            rodape,
+            text="+ ADICIONAR",
+            command=lambda p=produto:
+            adicionar_produto(p),
+            bg=COR_VERMELHO,
+            fg=COR_BRANCO,
+            activebackground=COR_VERMELHO_ESCURO,
+            relief="flat",
+            cursor="hand2",
+            font=("Arial", 8, "bold")
+        ).pack(
+            side="right"
+        )
+
+    # ========================================================
+    # LADO DIREITO
+    # ========================================================
+
+    direita = tk.Frame(
+        principal,
+        bg=COR_CARD,
+        width=295
+    )
+
+    direita.pack(
+        side="right",
+        fill="y",
+        padx=(10, 0)
+    )
+
+    direita.pack_propagate(
+        False
+    )
+
+    tk.Label(
+        direita,
+        text="🛒 Seu Pedido",
+        font=("Arial", 17, "bold"),
+        bg=COR_CARD,
+        fg=COR_BRANCO
+    ).pack(
+        anchor="w",
+        padx=15,
+        pady=(15, 8)
+    )
+
+    colunas = (
+        "Produto",
+        "Qtd",
+        "Total"
+    )
+
+    tabela = ttk.Treeview(
+        direita,
+        columns=colunas,
+        show="headings",
+        height=8
+    )
+
+    tabela.heading(
+        "Produto",
+        text="Produto"
+    )
+
+    tabela.heading(
+        "Qtd",
+        text="Qtd"
+    )
+
+    tabela.heading(
+        "Total",
+        text="Total"
+    )
+
+    tabela.column(
+        "Produto",
+        width=125
+    )
+
+    tabela.column(
+        "Qtd",
+        width=35,
+        anchor="center"
+    )
+
+    tabela.column(
+        "Total",
+        width=70,
+        anchor="e"
+    )
+
+    tabela.pack(
+        fill="x",
+        padx=15
+    )
+
+    tk.Button(
+        direita,
+        text="🗑 Remover item",
+        command=remover_item,
+        bg="#333333",
+        fg=COR_BRANCO,
+        activebackground="#444444",
+        relief="flat",
+        cursor="hand2",
+        font=("Arial", 8, "bold")
+    ).pack(
+        fill="x",
+        padx=15,
+        pady=6,
+        ipady=5
+    )
+
+    tk.Frame(
+        direita,
+        bg="#333333",
+        height=1
+    ).pack(
+        fill="x",
+        padx=15,
+        pady=3
+    )
+
+    subtotal_label = tk.Label(
+        direita,
+        text="Subtotal: R$ 0,00",
+        font=("Arial", 9),
+        bg=COR_CARD,
+        fg=COR_CINZA
+    )
+
+    subtotal_label.pack(
+        anchor="w",
+        padx=15,
+        pady=2
+    )
+
+    desconto_label = tk.Label(
+        direita,
+        text="Desconto: R$ 0,00",
+        font=("Arial", 9),
+        bg=COR_CARD,
+        fg=COR_CINZA
+    )
+
+    desconto_label.pack(
+        anchor="w",
+        padx=15,
+        pady=2
+    )
+
+    total_label = tk.Label(
+        direita,
+        text="TOTAL: R$ 0,00",
+        font=("Arial", 14, "bold"),
+        bg=COR_CARD,
+        fg=COR_VERMELHO
+    )
+
+    total_label.pack(
+        anchor="w",
+        padx=15,
+        pady=(4, 8)
+    )
+
+    tk.Label(
+        direita,
+        text="Na próxima tela você verá as imagens\n"
+             "dos produtos e informará os dados.",
+        font=("Arial", 8),
+        justify="left",
+        bg=COR_CARD,
+        fg=COR_CINZA
+    ).pack(
+        anchor="w",
+        padx=15,
+        pady=(0, 8)
+    )
+
+    tk.Button(
+        direita,
+        text="✓ FINALIZAR COMPRA",
+        command=abrir_checkout,
+        bg=COR_VERMELHO,
+        fg=COR_BRANCO,
+        activebackground=COR_VERMELHO_ESCURO,
+        relief="flat",
+        cursor="hand2",
+        font=("Arial", 10, "bold")
+    ).pack(
+        fill="x",
+        padx=15,
+        ipady=9
+    )
+
+    tk.Button(
+        direita,
+        text="＋ NOVO PEDIDO",
+        command=limpar_pedido,
+        bg="#333333",
+        fg=COR_BRANCO,
+        activebackground="#444444",
+        relief="flat",
+        cursor="hand2",
+        font=("Arial", 9, "bold")
+    ).pack(
+        fill="x",
+        padx=15,
+        pady=7,
+        ipady=6
+    )
+
+    atualizar_carrinho()
+    atualizar_relogio()
+
+    janela.mainloop()
+
+
+# ============================================================
+# TELA DE LOGIN
+# ============================================================
+
+def iniciar_login():
+
+    global janela_login
+    global entrada_login_email
+    global entrada_login_senha
+
+    janela_login = tk.Tk()
+
+    janela_login.title(
+        "Login - Chapa Quente"
+    )
+
+    janela_login.geometry(
+        "430x500"
+    )
+
+    janela_login.resizable(
+        False,
+        False
+    )
+
+    janela_login.configure(
+        bg=COR_FUNDO
+    )
+
+    # ========================================================
+    # TITULO
+    # ========================================================
+
+    tk.Label(
+        janela_login,
+        text="🍔",
+        font=("Arial", 45),
+        bg=COR_FUNDO,
+        fg=COR_VERMELHO
+    ).pack(
+        pady=(35, 0)
+    )
+
+    tk.Label(
+        janela_login,
+        text="CHAPA QUENTE",
+        font=("Arial", 24, "bold"),
+        bg=COR_FUNDO,
+        fg=COR_BRANCO
+    ).pack()
+
+    tk.Label(
+        janela_login,
+        text="HAMBURGUERIA",
+        font=("Arial", 10, "bold"),
+        bg=COR_FUNDO,
+        fg=COR_VERMELHO
+    ).pack(
+        pady=(0, 25)
+    )
+
+    # ========================================================
+    # EMAIL
+    # ========================================================
+
+    tk.Label(
+        janela_login,
+        text="E-mail",
+        font=("Arial", 9, "bold"),
+        bg=COR_FUNDO,
+        fg=COR_CINZA
+    ).pack(
+        anchor="w",
+        padx=55
+    )
+
+    entrada_login_email = tk.Entry(
+        janela_login,
+        font=("Arial", 11),
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        insertbackground=COR_BRANCO,
+        relief="flat"
+    )
+
+    entrada_login_email.pack(
+        fill="x",
+        padx=55,
+        pady=(5, 15),
+        ipady=8
+    )
+
+    # ========================================================
+    # SENHA
+    # ========================================================
+
+    tk.Label(
+        janela_login,
+        text="Senha",
+        font=("Arial", 9, "bold"),
+        bg=COR_FUNDO,
+        fg=COR_CINZA
+    ).pack(
+        anchor="w",
+        padx=55
+    )
+
+    entrada_login_senha = tk.Entry(
+        janela_login,
+        font=("Arial", 11),
+        show="*",
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        insertbackground=COR_BRANCO,
+        relief="flat"
+    )
+
+    entrada_login_senha.pack(
+        fill="x",
+        padx=55,
+        pady=(5, 20),
+        ipady=8
+    )
+
+    # ========================================================
+    # ENTRAR
+    # ========================================================
+
+    tk.Button(
+        janela_login,
+        text="ENTRAR",
+        command=realizar_login,
         bg=COR_VERMELHO,
         fg=COR_BRANCO,
         activebackground=COR_VERMELHO_ESCURO,
         activeforeground=COR_BRANCO,
         relief="flat",
         cursor="hand2",
-        font=("Arial", 8, "bold")
+        font=("Arial", 10, "bold")
     ).pack(
-        side="right"
+        fill="x",
+        padx=55,
+        ipady=9
     )
 
+    # ========================================================
+    # CADASTRO
+    # ========================================================
 
-# ============================================================
-# LADO DIREITO - PEDIDO
-# ============================================================
+    tk.Button(
+        janela_login,
+        text="CRIAR NOVA CONTA",
+        command=abrir_cadastro,
+        bg=COR_CARD_2,
+        fg=COR_BRANCO,
+        activebackground="#333333",
+        relief="flat",
+        cursor="hand2",
+        font=("Arial", 9, "bold")
+    ).pack(
+        fill="x",
+        padx=55,
+        pady=10,
+        ipady=8
+    )
 
-direita = tk.Frame(
-    principal,
-    bg=COR_CARD,
-    width=295
-)
+    tk.Label(
+        janela_login,
+        text="Você pode criar uma conta de cliente ou administrador.\n"
+             "A conta de administrador exige o código administrativo.",
+        font=("Arial", 8),
+        bg=COR_FUNDO,
+        fg=COR_CINZA,
+        justify="center"
+    ).pack(
+        pady=5
+    )
 
-direita.pack(
-    side="right",
-    fill="y",
-    padx=(10, 0)
-)
+    janela_login.bind(
+        "<Return>",
+        lambda event: realizar_login()
+    )
 
-direita.pack_propagate(
-    False
-)
+    entrada_login_email.focus()
 
-
-tk.Label(
-    direita,
-    text="🛒 Seu Pedido",
-    font=("Arial", 17, "bold"),
-    bg=COR_CARD,
-    fg=COR_BRANCO
-).pack(
-    anchor="w",
-    padx=15,
-    pady=(15, 8)
-)
-
-
-# ============================================================
-# TABELA DO CARRINHO
-# ============================================================
-
-colunas = (
-    "Produto",
-    "Qtd",
-    "Total"
-)
-
-
-tabela = ttk.Treeview(
-    direita,
-    columns=colunas,
-    show="headings",
-    height=8
-)
-
-
-tabela.heading(
-    "Produto",
-    text="Produto"
-)
-
-tabela.heading(
-    "Qtd",
-    text="Qtd"
-)
-
-tabela.heading(
-    "Total",
-    text="Total"
-)
-
-
-tabela.column(
-    "Produto",
-    width=125
-)
-
-tabela.column(
-    "Qtd",
-    width=35,
-    anchor="center"
-)
-
-tabela.column(
-    "Total",
-    width=70,
-    anchor="e"
-)
-
-
-tabela.pack(
-    fill="x",
-    padx=15
-)
+    janela_login.mainloop()
 
 
 # ============================================================
-# REMOVER
+# INICIAR PROGRAMA
 # ============================================================
 
-tk.Button(
-    direita,
-    text="🗑 Remover item",
-    command=remover_item,
-    bg="#333333",
-    fg=COR_BRANCO,
-    activebackground="#444444",
-    relief="flat",
-    cursor="hand2",
-    font=("Arial", 8, "bold")
-).pack(
-    fill="x",
-    padx=15,
-    pady=6,
-    ipady=5
-)
-
-
-# ============================================================
-# SEPARADOR
-# ============================================================
-
-tk.Frame(
-    direita,
-    bg="#333333",
-    height=1
-).pack(
-    fill="x",
-    padx=15,
-    pady=3
-)
-
-
-# ============================================================
-# SUBTOTAL
-# ============================================================
-
-subtotal_label = tk.Label(
-    direita,
-    text="Subtotal: R$ 0,00",
-    font=("Arial", 9),
-    bg=COR_CARD,
-    fg=COR_CINZA
-)
-
-subtotal_label.pack(
-    anchor="w",
-    padx=15,
-    pady=2
-)
-
-
-# ============================================================
-# DESCONTO
-# ============================================================
-
-desconto_label = tk.Label(
-    direita,
-    text="Desconto: R$ 0,00",
-    font=("Arial", 9),
-    bg=COR_CARD,
-    fg=COR_CINZA
-)
-
-desconto_label.pack(
-    anchor="w",
-    padx=15,
-    pady=2
-)
-
-
-# ============================================================
-# TOTAL
-# ============================================================
-
-total_label = tk.Label(
-    direita,
-    text="TOTAL: R$ 0,00",
-    font=("Arial", 14, "bold"),
-    bg=COR_CARD,
-    fg=COR_VERMELHO
-)
-
-total_label.pack(
-    anchor="w",
-    padx=15,
-    pady=(4, 8)
-)
-
-
-# ============================================================
-# INFORMACAO
-# ============================================================
-
-tk.Label(
-    direita,
-    text="Na próxima tela você verá as imagens\n"
-         "dos produtos e informará os dados.",
-    font=("Arial", 8),
-    justify="left",
-    bg=COR_CARD,
-    fg=COR_CINZA
-).pack(
-    anchor="w",
-    padx=15,
-    pady=(0, 8)
-)
-
-
-# ============================================================
-# FINALIZAR COMPRA
-# ============================================================
-
-tk.Button(
-    direita,
-    text="✓ FINALIZAR COMPRA",
-    command=abrir_checkout,
-    bg=COR_VERMELHO,
-    fg=COR_BRANCO,
-    activebackground=COR_VERMELHO_ESCURO,
-    activeforeground=COR_BRANCO,
-    relief="flat",
-    cursor="hand2",
-    font=("Arial", 10, "bold")
-).pack(
-    fill="x",
-    padx=15,
-    ipady=9
-)
-
-
-# ============================================================
-# NOVO PEDIDO
-# ============================================================
-
-tk.Button(
-    direita,
-    text="＋ NOVO PEDIDO",
-    command=limpar_pedido,
-    bg="#333333",
-    fg=COR_BRANCO,
-    activebackground="#444444",
-    relief="flat",
-    cursor="hand2",
-    font=("Arial", 9, "bold")
-).pack(
-    fill="x",
-    padx=15,
-    pady=7,
-    ipady=6
-)
-
-
-# ============================================================
-# INICIAR
-# ============================================================
-
-atualizar_carrinho()
-
-atualizar_relogio()
-
-baixar_fotos()
-
-janela.mainloop()
+iniciar_login()
