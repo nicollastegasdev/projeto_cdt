@@ -6,6 +6,7 @@ import json
 import os
 import urllib.request
 import io
+import sqlite3
 
 
 # ============================================================
@@ -24,8 +25,7 @@ COR_BRANCO = "#ffffff"
 COR_CINZA = "#aaaaaa"
 COR_VERDE = "#2ecc71"
 
-ARQUIVO_PEDIDOS = "pedidos.json"
-ARQUIVO_USUARIOS = "usuarios.json"
+ARQUIVO_BANCO = "chapa_quente.db"
 PASTA_IMAGENS = "imagens"
 
 os.makedirs(PASTA_IMAGENS, exist_ok=True)
@@ -180,12 +180,169 @@ CARDAPIO = {
 
 
 # ============================================================
-# VARIAVEIS
+# BANCO DE DADOS SQLITE
 # ============================================================
+
+def conectar_banco():
+    conn = sqlite3.connect(ARQUIVO_BANCO)
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def criar_banco():
+    conn = conectar_banco()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS usuarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL,
+            email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            senha TEXT NOT NULL,
+            tipo TEXT NOT NULL CHECK(tipo IN ('cliente','funcionario','administrador')),
+            ativo INTEGER NOT NULL DEFAULT 1,
+            data_cadastro TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS funcionarios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL UNIQUE,
+            cargo TEXT NOT NULL DEFAULT 'Funcionario',
+            data_admissao TEXT,
+            ativo INTEGER NOT NULL DEFAULT 1,
+            FOREIGN KEY(usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS categorias (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nome TEXT NOT NULL UNIQUE,
+            ativo INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS produtos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            categoria_id INTEGER,
+            nome TEXT NOT NULL UNIQUE,
+            descricao TEXT DEFAULT '',
+            preco REAL NOT NULL CHECK(preco >= 0),
+            imagem TEXT DEFAULT '',
+            estoque INTEGER NOT NULL DEFAULT 0 CHECK(estoque >= 0),
+            estoque_minimo INTEGER NOT NULL DEFAULT 5 CHECK(estoque_minimo >= 0),
+            ativo INTEGER NOT NULL DEFAULT 1,
+            data_cadastro TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            data_atualizacao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(categoria_id) REFERENCES categorias(id) ON DELETE SET NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS movimentacoes_estoque (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            produto_id INTEGER NOT NULL,
+            usuario_id INTEGER,
+            tipo TEXT NOT NULL CHECK(tipo IN ('entrada','saida','ajuste','perda')),
+            quantidade INTEGER NOT NULL CHECK(quantidade > 0),
+            estoque_anterior INTEGER NOT NULL,
+            estoque_novo INTEGER NOT NULL,
+            observacao TEXT DEFAULT '',
+            data_movimentacao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(produto_id) REFERENCES produtos(id) ON DELETE CASCADE,
+            FOREIGN KEY(usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS pedidos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            numero TEXT NOT NULL UNIQUE,
+            usuario_id INTEGER,
+            cliente TEXT NOT NULL,
+            endereco TEXT NOT NULL,
+            tipo_residencia TEXT NOT NULL,
+            numero_casa TEXT NOT NULL,
+            data TEXT NOT NULL,
+            hora TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'Recebido',
+            pagamento TEXT NOT NULL,
+            subtotal REAL NOT NULL DEFAULT 0,
+            desconto REAL NOT NULL DEFAULT 0,
+            total REAL NOT NULL DEFAULT 0,
+            FOREIGN KEY(usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS itens_pedido (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pedido_id INTEGER NOT NULL,
+            produto_id INTEGER,
+            produto_nome TEXT NOT NULL,
+            preco_unitario REAL NOT NULL,
+            quantidade INTEGER NOT NULL,
+            subtotal REAL NOT NULL,
+            FOREIGN KEY(pedido_id) REFERENCES pedidos(id) ON DELETE CASCADE,
+            FOREIGN KEY(produto_id) REFERENCES produtos(id) ON DELETE SET NULL
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS logs_admin (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER,
+            acao TEXT NOT NULL,
+            tabela_afetada TEXT,
+            registro_id INTEGER,
+            descricao TEXT DEFAULT '',
+            data_acao TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+        )
+    """)
+
+    for dados in CARDAPIO.values():
+        # A categoria e definida pelo tipo do item.
+        nome = next((n for n, d in CARDAPIO.items() if d is dados), '')
+        if nome in ('Batata Frita',):
+            categoria = 'Acompanhamentos'
+        elif nome in ('Coca-Cola','Guarana','Fanta Laranja','Sprite','Pepsi'):
+            categoria = 'Refrigerantes'
+        elif nome.startswith('Suco'):
+            categoria = 'Sucos'
+        elif nome == 'Agua':
+            categoria = 'Bebidas'
+        else:
+            categoria = 'Hamburgueres'
+        cur.execute("INSERT OR IGNORE INTO categorias(nome) VALUES(?)", (categoria,))
+        categoria_id = cur.execute("SELECT id FROM categorias WHERE nome=?", (categoria,)).fetchone()[0]
+        cur.execute("""
+            INSERT OR IGNORE INTO produtos
+            (categoria_id,nome,descricao,preco,imagem,estoque,estoque_minimo)
+            VALUES(?,?,?,?,?,0,5)
+        """, (categoria_id,nome,dados['descricao'],dados['preco'],dados['imagem']))
+
+    conn.commit()
+    conn.close()
+
+
+def carregar_cardapio_banco():
+    conn = conectar_banco()
+    rows = conn.execute("""
+        SELECT p.nome,p.descricao,p.preco,p.imagem,p.estoque,c.nome
+        FROM produtos p LEFT JOIN categorias c ON c.id=p.categoria_id
+        WHERE p.ativo=1 ORDER BY p.id
+    """).fetchall()
+    conn.close()
+    resultado = {}
+    for nome, descricao, preco, imagem, estoque, categoria in rows:
+        emoji = CARDAPIO.get(nome, {}).get('emoji', '🍔')
+        resultado[nome] = {'preco': preco, 'descricao': descricao, 'imagem': imagem,
+                           'emoji': emoji, 'estoque': estoque, 'categoria': categoria or 'Outros'}
+    return resultado
+
+
+criar_banco()
+CARDAPIO = carregar_cardapio_banco()
 
 carrinho = []
 imagens_checkout = {}
-
 usuario_logado = None
 
 
@@ -198,107 +355,56 @@ def formatar_real(valor):
 
 
 # ============================================================
-# SISTEMA DE USUARIOS
+# SISTEMA DE USUARIOS - SQLITE
 # ============================================================
 
 def carregar_usuarios():
-
-    if not os.path.exists(ARQUIVO_USUARIOS):
-
-        # Não existe administrador padrão.
-        # O primeiro administrador deverá ser criado pelo próprio usuário
-        # através da opção "CRIAR CONTA DE ADMINISTRADOR".
-        return {}
-
-    try:
-
-        with open(
-            ARQUIVO_USUARIOS,
-            "r",
-            encoding="utf-8"
-        ) as arquivo:
-
-            return json.load(arquivo)
-
-    except Exception:
-
-        return {}
+    conn = conectar_banco()
+    rows = conn.execute("SELECT nome,email,senha,tipo,ativo FROM usuarios").fetchall()
+    conn.close()
+    return {email: {'nome': nome, 'senha': senha, 'tipo': tipo, 'ativo': ativo} for nome,email,senha,tipo,ativo in rows}
 
 
 def salvar_usuarios(usuarios):
-
-    with open(
-        ARQUIVO_USUARIOS,
-        "w",
-        encoding="utf-8"
-    ) as arquivo:
-
-        json.dump(
-            usuarios,
-            arquivo,
-            ensure_ascii=False,
-            indent=4
-        )
+    conn = conectar_banco()
+    cur = conn.cursor()
+    for email, dados in usuarios.items():
+        cur.execute("""
+            INSERT INTO usuarios(nome,email,senha,tipo,ativo) VALUES(?,?,?,?,?)
+            ON CONFLICT(email) DO UPDATE SET
+                nome=excluded.nome, senha=excluded.senha,
+                tipo=excluded.tipo, ativo=excluded.ativo
+        """, (dados['nome'], email, dados['senha'], dados['tipo'], dados.get('ativo',1)))
+    conn.commit(); conn.close()
 
 
 def cadastrar_usuario(nome, email, senha):
-    usuarios = carregar_usuarios()
-    email = email.lower().strip()
-
-    if email in usuarios:
-        return False, "Este e-mail já está cadastrado."
-
-    if len(nome.strip()) < 2:
-        return False, "Digite um nome válido."
-
-    if len(email) < 5 or "@" not in email:
-        return False, "Digite um e-mail válido."
-
-    if len(senha) < 4:
-        return False, "A senha deve possuir pelo menos 4 caracteres."
-
-    usuarios[email] = {
-        "nome": nome.strip(),
-        "senha": senha,
-        "tipo": "usuario"
-    }
-
-    salvar_usuarios(usuarios)
-
-    return True, "Usuário cadastrado com sucesso!"
+    email=email.lower().strip()
+    if len(nome.strip())<2: return False,"Digite um nome válido."
+    if len(email)<5 or '@' not in email: return False,"Digite um e-mail válido."
+    if len(senha)<4: return False,"A senha deve possuir pelo menos 4 caracteres."
+    conn=conectar_banco()
+    try:
+        conn.execute("INSERT INTO usuarios(nome,email,senha,tipo) VALUES(?,?,?,'cliente')",(nome.strip(),email,senha))
+        conn.commit(); return True,"Usuário cadastrado com sucesso!"
+    except sqlite3.IntegrityError:
+        return False,"Este e-mail já está cadastrado."
+    finally: conn.close()
 
 
-def cadastrar_admin(nome, email, senha, codigo):
-    usuarios = carregar_usuarios()
-    email = email.lower().strip()
-
-    if email in usuarios:
-        return False, "Este e-mail já está cadastrado."
-
-    # Código definido pelo dono do sistema para permitir a criação
-    # da primeira conta administrativa.
-    if codigo != "CHAPA-ADMIN":
-        return False, "Código de administrador incorreto."
-
-    if len(nome.strip()) < 2:
-        return False, "Digite um nome válido."
-
-    if len(email) < 5 or "@" not in email:
-        return False, "Digite um e-mail válido."
-
-    if len(senha) < 4:
-        return False, "A senha deve possuir pelo menos 4 caracteres."
-
-    usuarios[email] = {
-        "nome": nome.strip(),
-        "senha": senha,
-        "tipo": "administrador"
-    }
-
-    salvar_usuarios(usuarios)
-
-    return True, "Administrador criado com sucesso!"
-
+def cadastrar_admin(nome,email,senha,codigo):
+    email=email.lower().strip()
+    if codigo != "CHAPA-ADMIN": return False,"Código de administrador incorreto."
+    if len(nome.strip())<2: return False,"Digite um nome válido."
+    if len(email)<5 or '@' not in email: return False,"Digite um e-mail válido."
+    if len(senha)<4: return False,"A senha deve possuir pelo menos 4 caracteres."
+    conn=conectar_banco()
+    try:
+        conn.execute("INSERT INTO usuarios(nome,email,senha,tipo) VALUES(?,?,?,'administrador')",(nome.strip(),email,senha))
+        conn.commit(); return True,"Administrador criado com sucesso!"
+    except sqlite3.IntegrityError:
+        return False,"Este e-mail já está cadastrado."
+    finally: conn.close()
 
 
 # ============================================================
@@ -772,6 +878,13 @@ def cadastrar_funcionario():
 
         salvar_usuarios(usuarios)
 
+        if tipo_valor == "funcionario":
+            conn = conectar_banco()
+            uid = conn.execute("SELECT id FROM usuarios WHERE email=?", (email_valor,)).fetchone()[0]
+            conn.execute("INSERT OR IGNORE INTO funcionarios(usuario_id,cargo,data_admissao) VALUES(?,?,?)", (uid, "Funcionario", datetime.now().strftime("%Y-%m-%d")))
+            conn.commit()
+            conn.close()
+
         messagebox.showinfo(
             "Sucesso",
             "Conta criada com sucesso!",
@@ -874,6 +987,67 @@ def abrir_painel_admin():
         pady=5,
         ipady=8
     )
+
+
+
+
+    tk.Button(
+        frame_botoes,
+        text="📦 CONTROLAR ESTOQUE",
+        command=abrir_estoque_admin,
+        bg="#6c2bd9",
+        fg=COR_BRANCO,
+        relief="flat",
+        cursor="hand2",
+        font=("Arial", 10, "bold")
+    ).pack(
+        fill="x",
+        pady=5,
+        ipady=8
+    )
+# ============================================================
+# CONTROLE DE ESTOQUE - ADMINISTRADOR
+# ============================================================
+
+def abrir_estoque_admin():
+    if not usuario_logado or usuario_logado['tipo'] != 'administrador':
+        messagebox.showerror('Acesso negado','Somente o administrador pode controlar o estoque.'); return
+    win=tk.Toplevel(janela); win.title('Controle de estoque'); win.geometry('760x520'); win.configure(bg=COR_FUNDO)
+    tk.Label(win,text='📦 CONTROLE DE ESTOQUE',font=('Arial',18,'bold'),bg=COR_FUNDO,fg=COR_BRANCO).pack(pady=15)
+    tabela=ttk.Treeview(win,columns=('Produto','Categoria','Preco','Estoque','Minimo'),show='headings')
+    for c in ('Produto','Categoria','Preco','Estoque','Minimo'): tabela.heading(c,text=c)
+    tabela.column('Produto',width=210); tabela.column('Categoria',width=130); tabela.column('Preco',width=90); tabela.column('Estoque',width=90); tabela.column('Minimo',width=90)
+    tabela.pack(fill='both',expand=True,padx=20,pady=10)
+    def carregar():
+        for x in tabela.get_children(): tabela.delete(x)
+        conn=conectar_banco(); rows=conn.execute("SELECT p.id,p.nome,COALESCE(c.nome,''),p.preco,p.estoque,p.estoque_minimo FROM produtos p LEFT JOIN categorias c ON c.id=p.categoria_id WHERE p.ativo=1 ORDER BY p.nome").fetchall(); conn.close()
+        for r in rows: tabela.insert('',tk.END,iid=str(r[0]),values=(r[1],r[2],formatar_real(r[3]),r[4],r[5]))
+    def alterar():
+        sel=tabela.selection()
+        if not sel: messagebox.showwarning('Atenção','Selecione um produto.',parent=win); return
+        pid=int(sel[0]); atual=tabela.item(sel[0])['values'][3]
+        dialog=tk.Toplevel(win); dialog.title('Alterar estoque'); dialog.geometry('380x280'); dialog.configure(bg=COR_CARD); dialog.transient(win); dialog.grab_set()
+        tk.Label(dialog,text='Quantidade em estoque',bg=COR_CARD,fg=COR_CINZA,font=('Arial',9,'bold')).pack(pady=(25,5))
+        entrada=tk.Entry(dialog,font=('Arial',12),bg=COR_CARD_2,fg=COR_BRANCO,insertbackground=COR_BRANCO,relief='flat'); entrada.insert(0,str(atual)); entrada.pack(fill='x',padx=40,ipady=7)
+        tk.Label(dialog,text='Estoque mínimo',bg=COR_CARD,fg=COR_CINZA,font=('Arial',9,'bold')).pack(pady=(15,5))
+        minimo=tk.Entry(dialog,font=('Arial',12),bg=COR_CARD_2,fg=COR_BRANCO,insertbackground=COR_BRANCO,relief='flat'); minimo.insert(0,str(tabela.item(sel[0])['values'][4])); minimo.pack(fill='x',padx=40,ipady=7)
+        def salvar():
+            try: novo=int(entrada.get()); minv=int(minimo.get())
+            except ValueError: messagebox.showerror('Erro','Digite números inteiros.',parent=dialog); return
+            if novo<0 or minv<0: messagebox.showerror('Erro','Os valores não podem ser negativos.',parent=dialog); return
+            conn=conectar_banco(); old=conn.execute('SELECT estoque FROM produtos WHERE id=?',(pid,)).fetchone()[0]
+            conn.execute("UPDATE produtos SET estoque=?,estoque_minimo=?,data_atualizacao=CURRENT_TIMESTAMP WHERE id=?",(novo,minv,pid))
+            dif=novo-old
+            if dif: conn.execute("INSERT INTO movimentacoes_estoque(produto_id,usuario_id,tipo,quantidade,estoque_anterior,estoque_novo,observacao) VALUES(?,?,?,?,?,?,?)",(pid, None if not usuario_logado else obter_id_usuario(usuario_logado['email']), 'ajuste',abs(dif),old,novo,'Alteração pelo painel administrativo'))
+            conn.execute("INSERT INTO logs_admin(usuario_id,acao,tabela_afetada,registro_id,descricao) VALUES(?,?,?,?,?)",(obter_id_usuario(usuario_logado['email']),'ALTERAR_ESTOQUE','produtos',pid,f'Estoque alterado de {old} para {novo}'))
+            conn.commit(); conn.close(); CARDAPIO.clear(); CARDAPIO.update(carregar_cardapio_banco()); carregar(); dialog.destroy()
+        tk.Button(dialog,text='SALVAR ESTOQUE',command=salvar,bg=COR_VERMELHO,fg=COR_BRANCO,relief='flat',font=('Arial',10,'bold')).pack(fill='x',padx=40,pady=20,ipady=8)
+    tk.Button(win,text='📦 ALTERAR ESTOQUE',command=alterar,bg=COR_VERMELHO,fg=COR_BRANCO,relief='flat',font=('Arial',10,'bold')).pack(fill='x',padx=20,pady=(0,20),ipady=8)
+    carregar()
+
+
+def obter_id_usuario(email):
+    conn=conectar_banco(); row=conn.execute('SELECT id FROM usuarios WHERE email=?',(email,)).fetchone(); conn.close(); return row[0] if row else None
 
 
 # ============================================================
@@ -1247,25 +1421,21 @@ def calcular_valores():
 # ============================================================
 
 def adicionar_produto(produto):
-
+    dados = CARDAPIO.get(produto)
+    if not dados: return
+    conn = conectar_banco()
+    row = conn.execute("SELECT estoque,preco,ativo FROM produtos WHERE nome=?", (produto,)).fetchone()
+    conn.close()
+    if not row or not row[2]:
+        messagebox.showwarning("Produto indisponível", "Este produto não está disponível."); return
+    estoque = row[0]
+    quantidade_carrinho = next((i['quantidade'] for i in carrinho if i['produto']==produto),0)
+    if quantidade_carrinho >= estoque:
+        messagebox.showwarning("Estoque insuficiente", f"Não há mais unidades de {produto} disponíveis."); return
     for item in carrinho:
-
-        if item["produto"] == produto:
-
-            item["quantidade"] += 1
-
-            atualizar_carrinho()
-
-            return
-
-    carrinho.append(
-        {
-            "produto": produto,
-            "preco": CARDAPIO[produto]["preco"],
-            "quantidade": 1
-        }
-    )
-
+        if item['produto']==produto:
+            item['quantidade']+=1; atualizar_carrinho(); return
+    carrinho.append({'produto':produto,'preco':row[1],'quantidade':1})
     atualizar_carrinho()
 
 
@@ -1884,60 +2054,60 @@ def finalizar_pedido(
         "total": total
     }
 
-    salvar_pedido(pedido)
+    try:
+        salvar_pedido(pedido)
+    except ValueError as erro:
+        messagebox.showerror("Estoque insuficiente", str(erro), parent=checkout)
+        CARDAPIO.clear()
+        CARDAPIO.update(carregar_cardapio_banco())
+        return
+    except sqlite3.Error as erro:
+        messagebox.showerror(
+            "Erro no banco de dados",
+            f"Não foi possível finalizar o pedido.\n\n{erro}",
+            parent=checkout
+        )
+        return
 
+    # Fecha o checkout e volta para a tela principal
     checkout.destroy()
 
-    mostrar_recibo(pedido)
-
+    # Limpa o carrinho da tela principal
     limpar_pedido()
+
+    # Atualiza os produtos com o estoque novo
+    CARDAPIO.clear()
+    CARDAPIO.update(carregar_cardapio_banco())
+
+    # Confirma a compra sem abrir uma segunda tela de recibo
+    messagebox.showinfo(
+        "Pedido confirmado",
+        f"Pedido Nº {pedido['numero']} finalizado com sucesso!\n\n"
+        f"Total: {formatar_real(pedido['total'])}\n\n"
+        "Você voltou para o cardápio principal."
+    )
 
 
 # ============================================================
-# SALVAR PEDIDO
+# SALVAR PEDIDO - SQLITE
 # ============================================================
 
 def salvar_pedido(pedido):
-
-    pedidos = []
-
-    if os.path.exists(
-        ARQUIVO_PEDIDOS
-    ):
-
-        try:
-
-            with open(
-                ARQUIVO_PEDIDOS,
-                "r",
-                encoding="utf-8"
-            ) as arquivo:
-
-                pedidos = json.load(
-                    arquivo
-                )
-
-        except Exception:
-
-            pedidos = []
-
-    pedidos.append(
-        pedido
-    )
-
-    with open(
-        ARQUIVO_PEDIDOS,
-        "w",
-        encoding="utf-8"
-    ) as arquivo:
-
-        json.dump(
-            pedidos,
-            arquivo,
-            ensure_ascii=False,
-            indent=4
-        )
-
+    conn=conectar_banco(); cur=conn.cursor()
+    usuario_id=obter_id_usuario(pedido.get('usuario_email','')) if pedido.get('usuario_email') else None
+    cur.execute("""INSERT INTO pedidos(numero,usuario_id,cliente,endereco,tipo_residencia,numero_casa,data,hora,status,pagamento,subtotal,desconto,total)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",(pedido['numero'],usuario_id,pedido['cliente'],pedido['endereco'],pedido['tipo_residencia'],pedido['numero_casa'],pedido['data'],pedido['hora'],pedido['status'],pedido['pagamento'],pedido['subtotal'],pedido['desconto'],pedido['total']))
+    pedido_id=cur.lastrowid
+    for item in pedido['itens']:
+        produto_id=cur.execute('SELECT id,estoque FROM produtos WHERE nome=?',(item['produto'],)).fetchone()
+        if not produto_id or produto_id[1] < item['quantidade']:
+            conn.rollback(); conn.close(); raise ValueError(f"Estoque insuficiente para {item['produto']}.")
+        novo=produto_id[1]-item['quantidade']
+        cur.execute('INSERT INTO itens_pedido(pedido_id,produto_id,produto_nome,preco_unitario,quantidade,subtotal) VALUES(?,?,?,?,?,?)',(pedido_id,produto_id[0],item['produto'],item['preco'],item['quantidade'],item['preco']*item['quantidade']))
+        cur.execute('UPDATE produtos SET estoque=?,data_atualizacao=CURRENT_TIMESTAMP WHERE id=?',(novo,produto_id[0]))
+        cur.execute('INSERT INTO movimentacoes_estoque(produto_id,usuario_id,tipo,quantidade,estoque_anterior,estoque_novo,observacao) VALUES(?,?,?,?,?,?,?)',(produto_id[0],usuario_id,'saida',item['quantidade'],produto_id[1],novo,f'Saída referente ao pedido {pedido["numero"]}'))
+    conn.commit(); conn.close()
+    CARDAPIO.clear(); CARDAPIO.update(carregar_cardapio_banco())
 
 # ============================================================
 # RECIBO
@@ -2203,44 +2373,12 @@ def visualizar_pedidos():
         pady=(0, 20)
     )
 
-    pedidos = []
-
-    if os.path.exists(
-        ARQUIVO_PEDIDOS
-    ):
-
-        try:
-
-            with open(
-                ARQUIVO_PEDIDOS,
-                "r",
-                encoding="utf-8"
-            ) as arquivo:
-
-                pedidos = json.load(
-                    arquivo
-                )
-
-        except Exception:
-
-            pedidos = []
+    conn = conectar_banco()
+    pedidos = conn.execute("SELECT numero,cliente,data,pagamento,total,status FROM pedidos ORDER BY id DESC").fetchall()
+    conn.close()
 
     for pedido in pedidos:
-
-        tabela_pedidos.insert(
-            "",
-            tk.END,
-            values=(
-                pedido["numero"],
-                pedido["cliente"],
-                pedido["data"],
-                pedido["pagamento"],
-                formatar_real(
-                    pedido["total"]
-                ),
-                pedido["status"]
-            )
-        )
+        tabela_pedidos.insert("", tk.END, values=(pedido[0],pedido[1],pedido[2],pedido[3],formatar_real(pedido[4]),pedido[5]))
 
 
 # ============================================================
